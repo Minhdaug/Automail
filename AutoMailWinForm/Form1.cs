@@ -12,7 +12,9 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
-
+using WebDriverManager;
+using WebDriverManager.DriverConfigs.Impl;
+using WebDriverManager.Helpers;
 namespace AutoMailWinForm
 {
 	public partial class Form1 : Form
@@ -77,6 +79,12 @@ namespace AutoMailWinForm
 
 		private async void btnStart_Click(object sender, EventArgs e)
 		{
+			// Dòng này sẽ kiểm tra Chrome trên máy, tải driver khớp version về.
+			await Task.Run(() => new DriverManager().SetUpDriver(new ChromeConfig()));
+			await Task.Run(() => new DriverManager().SetUpDriver(
+			new ChromeConfig(),
+			VersionResolveStrategy.MatchingBrowser
+));
 			// 1. Lấy danh sách từ ô nhập liệu
 			List<string> rawList = txtInput.Lines
 								   .Where(x => !string.IsNullOrWhiteSpace(x))
@@ -88,67 +96,87 @@ namespace AutoMailWinForm
 				MessageBox.Show("Bạn chưa nhập email nào cả!");
 				return;
 			}
-			// [SỬA 1] Lấy số luồng từ ô nhập liệu thay vì số cố định
+
+			// Lấy số luồng từ ô nhập
 			int soLuongThread = (int)nudThreads.Value;
 
-			// 2. CHUẨN BỊ GIAO DIỆN: Tạo sẵn các dòng "Đang chờ..."
+			// 2. CHUẨN BỊ GIAO DIỆN
 			dtResults.Clear();
 			List<MailTask> taskList = new List<MailTask>();
 
 			for (int i = 0; i < rawList.Count; i++)
 			{
 				int stt = i + 1;
-				// Thêm sẵn vào bảng để bạn thấy danh sách 20 mail
 				dtResults.Rows.Add(stt, rawList[i], "", "Đang chờ lượt...");
-
-				// Tạo task để chạy
 				taskList.Add(new MailTask { Stt = stt, Email = rawList[i] });
 			}
 
+			// Khóa các nút
 			btnStart.Enabled = false;
-			if (btnExport != null) btnExport.Enabled = false; // Khóa nút xuất file
+			if (btnExport != null) btnExport.Enabled = false;
+			nudThreads.Enabled = false;
+
 			btnStart.Text = $"Đang chạy {taskList.Count} mail...";
 
-			await Task.Run(() =>
+			// --- [BẮT ĐẦU CƠ CHẾ SEMAPHORE (GHẾ NGỒI)] ---
+
+			// Tạo 'soLuongThread' cái ghế. Ví dụ: 5 ghế.
+			using (SemaphoreSlim semaphore = new SemaphoreSlim(soLuongThread))
 			{
-				// --- CẤU HÌNH SỐ LUỒNG ---
-				//Dùng biến soLuongThread vào cấu hình Parallel
-				var options = new ParallelOptions { MaxDegreeOfParallelism = soLuongThread };
-
-				Parallel.ForEach(taskList, options, (task) =>
+				// Tạo danh sách các tác vụ (Task) cho TẤT CẢ email
+				var tasks = taskList.Select(async task =>
 				{
-					// Truyền STT vào để code biết đang xử lý dòng nào
-					XuLyMotTaiKhoan(task.Email, task.Stt);
+					// 1. XIN GHẾ: Chờ đến khi có ghế trống
+					await semaphore.WaitAsync();
+					try
+					{
+						// 2. CÓ GHẾ RỒI -> CHẠY NGAY
+						// Chạy hàm xử lý trong một luồng riêng biệt để không đơ giao diện
+						await Task.Run(() =>
+						{
+							XuLyMotTaiKhoan(task.Email, task.Stt);
+						});
+					}
+					finally
+					{
+						// 3. TRẢ GHẾ: Dù chạy xong hay lỗi cũng phải trả ghế
+						// Để người tiếp theo (đang đợi ở bước 1) được vào ngay lập tức
+						semaphore.Release();
+					}
 				});
-			});
 
+				// Đợi cho đến khi tất cả các email đều chạy xong
+				await Task.WhenAll(tasks);
+			}
+
+			// --- [KẾT THÚC CHẠY] ---
+
+			// Mở lại nút
 			btnStart.Enabled = true;
 			if (btnExport != null) btnExport.Enabled = true;
+			nudThreads.Enabled = true;
+
 			btnStart.Text = "Bắt đầu chạy";
-			MessageBox.Show("Hoàn thành!");
+			MessageBox.Show("Hoàn thành tất cả!");
+
+			// Tự động xuất file (nếu muốn)
+			// XuatFileCSV(); 
 		}
 
 		// Thêm tham số 'stt' vào hàm xử lý
 		void XuLyMotTaiKhoan(string fullEmail, int stt)
 		{
+			// Giữ HashSet để lọc link trùng giữa các mail (Link rác, footer...)
 			HashSet<string> collectedLinks = new HashSet<string>();
 
 			UpdateStatus(stt, "Đang khởi tạo...");
 
 			var chromeOptions = new ChromeOptions();
 			chromeOptions.AddArgument("--window-size=1000,800");
-
-			// --- CẤU HÌNH TĂNG TỐC ĐỘ (CODE MỚI) ---
-			chromeOptions.AddArgument("--headless=new"); // 1. Chạy ẩn
-
-			// 2. Chặn tải hình ảnh (Giúp web load nhanh gấp đôi)
+			chromeOptions.AddArgument("--headless=new");
 			chromeOptions.AddUserProfilePreference("profile.managed_default_content_settings.images", 2);
 			chromeOptions.AddArgument("--blink-settings=imagesEnabled=false");
-
-			// 3. Chế độ Eager: Chỉ cần hiện chữ là chạy, không chờ quảng cáo load xong
 			chromeOptions.PageLoadStrategy = PageLoadStrategy.Eager;
-
-			// 4. Tắt các tính năng thừa thãi
 			chromeOptions.AddArgument("--disable-extensions");
 			chromeOptions.AddArgument("--disable-gpu");
 			chromeOptions.AddArgument("--disable-popup-blocking");
@@ -158,7 +186,7 @@ namespace AutoMailWinForm
 				try
 				{
 					driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(5);
-					WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(40)); // Tăng thời gian chờ tổng
+					WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(40));
 
 					// --- LOGIN ---
 					driver.Navigate().GoToUrl("https://hcmail.xyz");
@@ -167,71 +195,79 @@ namespace AutoMailWinForm
 					var btnMoi = wait.Until(ExpectedConditions.ElementToBeClickable(By.XPath("//i[contains(@class, 'fa-plus')]/parent::div")));
 					((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].click();", btnMoi);
 
-					// 1. Tách user và domain
 					string username = fullEmail.Split('@')[0];
 					string targetDomain = fullEmail.Split('@')[1];
 
 					var inputUser = wait.Until(ExpectedConditions.ElementIsVisible(By.Name("user")));
 					inputUser.Clear();
-					// 2. Chỉ điền Username
 					inputUser.SendKeys(username);
 
-					// 3. Chọn đúng Domain từ menu
 					try
 					{
 						var domainSelect = driver.FindElement(By.Name("domain"));
 						((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].click();", domainSelect);
 						Thread.Sleep(200);
-
-						// Click vào dòng chứa đúng tên miền (hcmail.xyz hoặc hvcmail.online...)
 						var domainOption = driver.FindElement(By.XPath($"//a[contains(text(), '{targetDomain}')]"));
 						((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].click();", domainOption);
 					}
 					catch { }
 
-
-
 					var btnTao = driver.FindElement(By.XPath("//input[@type='submit']"));
 					((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].click();", btnTao);
 
-					// --- ĐỌC 5 THƯ ---
+					// --- ĐỌC THƯ (LOGIC CHUẨN) ---
 					UpdateStatus(stt, "Đang chờ thư về...");
-					// Chờ danh sách hiện đủ 5 cái
-					wait.Until(d => d.FindElements(By.XPath("//div[@data-id]")).Count >= 5);
 
-					// Vòng lặp từ 4 về 0 (để lấy đúng thứ tự Mail 1 -> Mail 5)
-					for (int i = 0; i < 5; i++)
+					// [SỬA 1]: Chỉ cần chờ > 0 (Có thư là chạy, không ép chờ đủ 5 để tránh Timeout)
+					try
+					{
+						wait.Until(d => d.FindElements(By.XPath("//div[@data-id]")).Count > 0);
+					}
+					catch
+					{
+						UpdateStatus(stt, "Không có thư nào (Timeout)!");
+						return;
+					}
+
+					var currentMails = driver.FindElements(By.XPath("//div[@data-id]"));
+
+					// [SỬA 2]: Tính toán số lượng cần đọc (Max 5 hoặc ít hơn)
+					int countToRead = Math.Min(5, currentMails.Count);
+
+					// Chạy vòng lặp từ 0 -> countToRead
+					// i=0 tương ứng với phần tử đầu tiên trong HTML (Là Mới nhất theo phân tích logic trên)
+					for (int i = 0; i < countToRead; i++)
 					{
 						int mailLabel = i + 1;
 						bool isSuccess = false;
 
-						// === CƠ CHẾ THỬ LẠI (RETRY) ===
-						// Nếu lỗi ở thư này, thử lại tối đa 3 lần
-						for (int retry = 0; retry < 3; retry++)
+						for (int retry = 0; retry < 2; retry++)
 						{
 							try
 							{
-								UpdateStatus(stt, $"Đang đọc thư {mailLabel}/5 (Lần {retry + 1})...");
+								UpdateStatus(stt, $"Đọc thư {mailLabel} (Lần {retry + 1})...");
 
-								// Lấy lại danh sách mail (tránh lỗi Stale Element)
-								wait.Until(d => d.FindElements(By.XPath("//div[@data-id]")).Count >= 5);
-								var currentMails = driver.FindElements(By.XPath("//div[@data-id]"));
+								driver.Navigate().GoToUrl("https://hcmail.xyz/mailbox");
+								wait.Until(d => d.FindElements(By.XPath("//div[@data-id]")).Count > 0);
+								currentMails = driver.FindElements(By.XPath("//div[@data-id]"));
 
-								// Scroll xuống để hiện mail
-								// Gộp lệnh Scroll và Click làm 1, bấm cực nhanh
+								// Kiểm tra an toàn index
+								if (i >= currentMails.Count) break;
+
+								// [CHỐT HẠ]: Click thẳng vào index i (0, 1, 2...)
+								// Vì công thức đảo ngược đã sai, nên công thức xuôi này BẮT BUỘC ĐÚNG.
 								((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].scrollIntoView(true); arguments[0].click();", currentMails[i]);
 
-								// TÌM LINK
+								// --- TÌM LINK ---
 								string finalLink = "";
-								bool isDuplicate = true; // Giả định là trùng, cần tìm cái mới
 
-								// Quét iframe tìm link trong 10 giây
+								// Quét iframe tìm link
 								for (int attempt = 0; attempt < 20; attempt++)
 								{
 									try
 									{
 										var iframes = driver.FindElements(By.TagName("iframe"));
-										foreach (var iframe in iframes.Reverse())
+										foreach (var iframe in iframes.Reverse()) // Ưu tiên iframe cuối (nội dung chính)
 										{
 											string raw = iframe.GetAttribute("srcdoc");
 											if (!string.IsNullOrEmpty(raw))
@@ -248,12 +284,11 @@ namespace AutoMailWinForm
 
 												if (!string.IsNullOrEmpty(tempLink))
 												{
-													// Kiểm tra trùng lặp
+													// Kiểm tra trùng: Nếu link này chưa từng có trong lịch sử của email này -> Lấy
 													if (!collectedLinks.Contains(tempLink))
 													{
 														finalLink = tempLink;
-														isDuplicate = false;
-														// Xóa iframe để dọn dẹp
+														// Xóa iframe để nhẹ máy
 														((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].remove();", iframe);
 														break;
 													}
@@ -263,8 +298,8 @@ namespace AutoMailWinForm
 									}
 									catch { }
 
-									if (!isDuplicate) break; // Tìm thấy link mới -> Thoát vòng lặp chờ
-									Thread.Sleep(300);
+									if (!string.IsNullOrEmpty(finalLink)) break;
+									Thread.Sleep(250);
 								}
 
 								if (!string.IsNullOrEmpty(finalLink))
@@ -277,26 +312,17 @@ namespace AutoMailWinForm
 									UpdateResult(stt, "Không tìm thấy link", mailLabel);
 								}
 
-								// Thành công -> Đánh dấu thoát vòng lặp Retry
 								isSuccess = true;
-
-								// Quay về Inbox chuẩn bị cho thư sau
-								driver.Navigate().GoToUrl("https://hcmail.xyz/mailbox");
 								break;
 							}
 							catch
 							{
-								// Nếu lỗi, quay về Inbox và thử lại (vòng lặp retry sẽ chạy tiếp)
 								driver.Navigate().GoToUrl("https://hcmail.xyz/mailbox");
-								Thread.Sleep(2000);
+								Thread.Sleep(1000);
 							}
 						}
 
-						// Nếu thử 3 lần mà vẫn thất bại hoàn toàn
-						if (!isSuccess)
-						{
-							UpdateResult(stt, "Lỗi đọc thư (Skip)", mailLabel);
-						}
+						if (!isSuccess) UpdateResult(stt, "Lỗi đọc", mailLabel);
 					}
 					UpdateStatus(stt, "Hoàn tất!");
 				}
@@ -337,14 +363,59 @@ namespace AutoMailWinForm
 					{
 						if (Convert.ToInt32(row["STT"]) == stt)
 						{
-							string linkCu = row["Link Lấy Được"].ToString();
-							string linkMoi = $"[Mail {mailIndex}]: {link}";
+							// 1. Lấy nội dung hiện tại trong ô
+							string currentText = row["Link Lấy Được"].ToString();
 
-							if (string.IsNullOrEmpty(linkCu) || mailIndex == 1)
-								row["Link Lấy Được"] = linkMoi;
+							// 2. Dùng SortedDictionary để lưu trữ
+							// Key = Số thứ tự mail (1, 2, 3...)
+							// Value = Link
+							// Tác dụng: Tự động sắp xếp từ bé đến lớn và KHÔNG cho phép trùng Key
+							SortedDictionary<int, string> linkMap = new SortedDictionary<int, string>();
+
+							// 3. Phân tích (Parse) nội dung cũ để nhét lại vào Dictionary (để không bị mất dữ liệu cũ)
+							if (!string.IsNullOrEmpty(currentText))
+							{
+								var lines = currentText.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
+								foreach (var line in lines)
+								{
+									// Dùng Regex để tách lấy số thứ tự mail: "[Mail 1]: https..."
+									Match m = Regex.Match(line, @"\[Mail (\d+)\]: (.*)");
+									if (m.Success)
+									{
+										int idx = int.Parse(m.Groups[1].Value);
+										string content = m.Groups[2].Value;
+
+										// Chỉ thêm nếu chưa có (đề phòng dữ liệu rác cũ)
+										if (!linkMap.ContainsKey(idx))
+										{
+											linkMap.Add(idx, content);
+										}
+									}
+								}
+							}
+
+							// 4. CẬP NHẬT LINK MỚI
+							// Nếu mailIndex này đã tồn tại -> Ghi đè (Sửa lỗi lặp lại)
+							// Nếu chưa có -> Thêm mới (Sửa lỗi lộn xộn vì Dictionary tự xếp)
+							if (linkMap.ContainsKey(mailIndex))
+							{
+								linkMap[mailIndex] = link;
+							}
 							else
-								row["Link Lấy Được"] = linkCu + Environment.NewLine + linkMoi;
+							{
+								linkMap.Add(mailIndex, link);
+							}
 
+							// 5. Ghép lại thành chuỗi hiển thị chuẩn đẹp
+							List<string> finalLines = new List<string>();
+							foreach (var kvp in linkMap)
+							{
+								finalLines.Add($"[Mail {kvp.Key}]: {kvp.Value}");
+							}
+
+							row["Link Lấy Được"] = string.Join(Environment.NewLine, finalLines);
+
+							// Auto resize để dòng giãn ra cho đẹp
 							gridResult.AutoResizeRows(DataGridViewAutoSizeRowsMode.AllCells);
 							break;
 						}
