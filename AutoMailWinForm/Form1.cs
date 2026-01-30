@@ -19,7 +19,8 @@ namespace AutoMailWinForm
 {
 	public partial class Form1 : Form
 	{
-		DataTable dtResults;
+        readonly DateTime NGAY_HET_HAN = new DateTime(2026, 2, 2);
+        DataTable dtResults;
 		NumericUpDown nudThreads;
 		Label lblThreads;
 		public Form1()
@@ -32,7 +33,7 @@ namespace AutoMailWinForm
 		{
 			// Tạo nhãn "Số luồng:"
 			lblThreads = new Label();
-			lblThreads.Text = "Số luồng:";
+			lblThreads.Text = "Số luồng chạy:";
 			lblThreads.AutoSize = true;
 			lblThreads.Location = new Point(btnStart.Right + 20, btnStart.Top + 5);
 			this.Controls.Add(lblThreads);
@@ -79,8 +80,14 @@ namespace AutoMailWinForm
 
 		private async void btnStart_Click(object sender, EventArgs e)
 		{
-			// Dòng này sẽ kiểm tra Chrome trên máy, tải driver khớp version về.
-			await Task.Run(() => new DriverManager().SetUpDriver(
+            if (DateTime.Now > NGAY_HET_HAN)
+            {
+                MessageBox.Show("Phần mềm đã hết hạn dùng thử!\nVui lòng liên hệ tác giả để gia hạn.",
+                                "Hết hạn", MessageBoxButtons.OK, MessageBoxIcon.Stop);
+                return; // Dừng lại ngay, không chạy tiếp
+            }
+            // Dòng này sẽ kiểm tra Chrome trên máy, tải driver khớp version về.
+            await Task.Run(() => new DriverManager().SetUpDriver(
 			new ChromeConfig(),
 			VersionResolveStrategy.MatchingBrowser
 ));
