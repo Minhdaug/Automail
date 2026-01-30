@@ -80,7 +80,6 @@ namespace AutoMailWinForm
 		private async void btnStart_Click(object sender, EventArgs e)
 		{
 			// Dòng này sẽ kiểm tra Chrome trên máy, tải driver khớp version về.
-			await Task.Run(() => new DriverManager().SetUpDriver(new ChromeConfig()));
 			await Task.Run(() => new DriverManager().SetUpDriver(
 			new ChromeConfig(),
 			VersionResolveStrategy.MatchingBrowser
@@ -163,177 +162,139 @@ namespace AutoMailWinForm
 			// XuatFileCSV(); 
 		}
 
-		// Thêm tham số 'stt' vào hàm xử lý
-		void XuLyMotTaiKhoan(string fullEmail, int stt)
-		{
-			// Giữ HashSet để lọc link trùng giữa các mail (Link rác, footer...)
-			HashSet<string> collectedLinks = new HashSet<string>();
+        // Thêm tham số 'stt' vào hàm xử lý
+        void XuLyMotTaiKhoan(string fullEmail, int stt)
+        {
+            // List lưu kết quả
+            HashSet<string> collectedLinks = new HashSet<string>();
+            UpdateStatus(stt, "Đang khởi tạo...");
 
-			UpdateStatus(stt, "Đang khởi tạo...");
+            var chromeOptions = new ChromeOptions();
+            chromeOptions.AddArgument("--window-size=1400,1000");
+            chromeOptions.AddArgument("--headless=new");
+            chromeOptions.AddUserProfilePreference("profile.managed_default_content_settings.images", 2);
+            chromeOptions.AddArgument("--blink-settings=imagesEnabled=false");
+            chromeOptions.PageLoadStrategy = PageLoadStrategy.Eager;
+            chromeOptions.AddArgument("--disable-extensions");
+            chromeOptions.AddArgument("--disable-gpu");
+            chromeOptions.AddArgument("--disable-popup-blocking");
 
-			var chromeOptions = new ChromeOptions();
-			chromeOptions.AddArgument("--window-size=1000,800");
-			chromeOptions.AddArgument("--headless=new");
-			chromeOptions.AddUserProfilePreference("profile.managed_default_content_settings.images", 2);
-			chromeOptions.AddArgument("--blink-settings=imagesEnabled=false");
-			chromeOptions.PageLoadStrategy = PageLoadStrategy.Eager;
-			chromeOptions.AddArgument("--disable-extensions");
-			chromeOptions.AddArgument("--disable-gpu");
-			chromeOptions.AddArgument("--disable-popup-blocking");
+            using (var driver = new ChromeDriver(chromeOptions))
+            {
+                try
+                {
+                    driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(5);
+                    WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(40));
 
-			using (var driver = new ChromeDriver(chromeOptions))
-			{
-				try
-				{
-					driver.Manage().Timeouts().ImplicitWait = TimeSpan.FromSeconds(5);
-					WebDriverWait wait = new WebDriverWait(driver, TimeSpan.FromSeconds(40));
+                    // =========================================================
+                    // 1. LOGIN & TẠO MAIL (GIỮ NGUYÊN)
+                    // =========================================================
+                    driver.Navigate().GoToUrl("https://tmailstore.com");
 
-					// --- LOGIN ---
-					driver.Navigate().GoToUrl("https://hcmail.xyz");
-					wait.Until(ExpectedConditions.ElementIsVisible(By.CssSelector("input[type='password']"))).SendKeys("1" + OpenQA.Selenium.Keys.Enter);
+                    try
+                    {
+                        var passInput = wait.Until(ExpectedConditions.ElementIsVisible(By.Id("password")));
+                        passInput.SendKeys("Trongtrieu970819@" + OpenQA.Selenium.Keys.Enter);
+                        Thread.Sleep(2000);
+                    }
+                    catch { }
 
-					var btnMoi = wait.Until(ExpectedConditions.ElementToBeClickable(By.XPath("//i[contains(@class, 'fa-plus')]/parent::div")));
-					((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].click();", btnMoi);
+                    var btnMoi = wait.Until(ExpectedConditions.ElementToBeClickable(By.XPath("//div[contains(text(), 'Mới')]/parent::div")));
+                    ((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].click();", btnMoi);
 
-					string username = fullEmail.Split('@')[0];
-					string targetDomain = fullEmail.Split('@')[1];
+                    string username = fullEmail.Split('@')[0];
+                    var inputUser = wait.Until(ExpectedConditions.ElementIsVisible(By.Id("user")));
+                    inputUser.Clear();
+                    inputUser.SendKeys(username);
 
-					var inputUser = wait.Until(ExpectedConditions.ElementIsVisible(By.Name("user")));
-					inputUser.Clear();
-					inputUser.SendKeys(username);
+                    var btnTao = driver.FindElement(By.Id("create"));
+                    ((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].click();", btnTao);
 
-					try
-					{
-						var domainSelect = driver.FindElement(By.Name("domain"));
-						((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].click();", domainSelect);
-						Thread.Sleep(200);
-						var domainOption = driver.FindElement(By.XPath($"//a[contains(text(), '{targetDomain}')]"));
-						((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].click();", domainOption);
-					}
-					catch { }
+                    // =========================================================
+                    // 2. ĐỌC LINK (PHƯƠNG PHÁP KHÔNG CẦN CLICK)
+                    // =========================================================
+                    UpdateStatus(stt, "Đang chờ thư về...");
 
-					var btnTao = driver.FindElement(By.XPath("//input[@type='submit']"));
-					((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].click();", btnTao);
+                    try
+                    {
+                        // Chờ danh sách bên trái hiện ra (để đảm bảo mail đã về)
+                        wait.Until(d => d.FindElements(By.CssSelector(".messages > div[data-id]")).Count > 0);
+                    }
+                    catch
+                    {
+                        UpdateStatus(stt, "Timeout: Không có thư nào!");
+                        return;
+                    }
 
-					// --- ĐỌC THƯ (LOGIC CHUẨN) ---
-					UpdateStatus(stt, "Đang chờ thư về...");
+                    // [BƯỚC 1]: Lấy danh sách ID theo đúng thứ tự hiển thị (từ trên xuống dưới)
+                    // Việc này giúp ta biết đâu là Mail 1, Mail 2...
+                    var mailRows = driver.FindElements(By.CssSelector(".messages > div[data-id]"));
+                    List<string> orderedIds = new List<string>();
+                    foreach (var row in mailRows)
+                    {
+                        string id = row.GetAttribute("data-id");
+                        if (!string.IsNullOrEmpty(id)) orderedIds.Add(id);
+                    }
 
-					// [SỬA 1]: Chỉ cần chờ > 0 (Có thư là chạy, không ép chờ đủ 5 để tránh Timeout)
-					try
-					{
-						wait.Until(d => d.FindElements(By.XPath("//div[@data-id]")).Count > 0);
-					}
-					catch
-					{
-						UpdateStatus(stt, "Không có thư nào (Timeout)!");
-						return;
-					}
+                    // Chỉ lấy 10 thư đầu
+                    int count = Math.Min(10, orderedIds.Count);
 
-					var currentMails = driver.FindElements(By.XPath("//div[@data-id]"));
+                    // [BƯỚC 2]: Dùng vòng lặp quét qua từng ID để lấy nội dung
+                    // Lưu ý: Nội dung nằm bên phải, trong các thẻ div có id="message-XXX"
+                    for (int i = 0; i < count; i++)
+                    {
+                        int mailLabel = i + 1;
+                        string targetId = orderedIds[i]; // Ví dụ: "36"
+                        string targetDivId = "message-" + targetId; // Ví dụ: "message-36"
 
-					// [SỬA 2]: Tính toán số lượng cần đọc (Max 5 hoặc ít hơn)
-					int countToRead = Math.Min(5, currentMails.Count);
+                        UpdateStatus(stt, $"Đang trích xuất Mail {mailLabel} (ID:{targetId})...");
 
-					// Chạy vòng lặp từ 0 -> countToRead
-					// i=0 tương ứng với phần tử đầu tiên trong HTML (Là Mới nhất theo phân tích logic trên)
-					for (int i = 0; i < countToRead; i++)
-					{
-						int mailLabel = i + 1;
-						bool isSuccess = false;
+                        try
+                        {
+                            // Tìm thẻ div chứa nội dung thư (dù nó đang ẩn display:none vẫn tìm được)
+                            // Dựa vào HTML bạn gửi: <div x-show="id === 36" id="message-36" ...>
+                            var contentDiv = driver.FindElement(By.Id(targetDivId));
 
-						for (int retry = 0; retry < 2; retry++)
-						{
-							try
-							{
-								UpdateStatus(stt, $"Đọc thư {mailLabel} (Lần {retry + 1})...");
+                            // Tìm thẻ iframe nằm trong div đó
+                            var iframe = contentDiv.FindElement(By.TagName("iframe"));
 
-								driver.Navigate().GoToUrl("https://hcmail.xyz/mailbox");
-								wait.Until(d => d.FindElements(By.XPath("//div[@data-id]")).Count > 0);
-								currentMails = driver.FindElements(By.XPath("//div[@data-id]"));
+                            // [TUYỆT CHIÊU]: Lấy thẳng mã nguồn HTML trong thuộc tính 'srcdoc'
+                            // Không cần SwitchTo().Frame() -> Tránh được mọi lỗi kẹt
+                            string rawHtml = iframe.GetAttribute("srcdoc");
 
-								// Kiểm tra an toàn index
-								if (i >= currentMails.Count) break;
+                            // Giải mã HTML (vì srcdoc bị mã hóa ký tự đặc biệt)
+                            string decodedHtml = System.Net.WebUtility.HtmlDecode(rawHtml);
 
-								// [CHỐT HẠ]: Click thẳng vào index i (0, 1, 2...)
-								// Vì công thức đảo ngược đã sai, nên công thức xuôi này BẮT BUỘC ĐÚNG.
-								((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].scrollIntoView(true); arguments[0].click();", currentMails[i]);
+                            // Dùng Regex tìm link trong đoạn HTML vừa lấy
+                            Match m = Regex.Match(decodedHtml, @"https://g4b\.giftee\.biz/giftee_boxes/[a-zA-Z0-9\-]+");
 
-								// --- TÌM LINK ---
-								string finalLink = "";
+                            if (m.Success)
+                            {
+                                string link = m.Value;
+                                collectedLinks.Add(link);
+                                UpdateResult(stt, link, mailLabel);
+                            }
+                            else
+                            {
+                                UpdateResult(stt, "Không có link", mailLabel);
+                            }
+                        }
+                        catch (Exception)
+                        {
+                            UpdateResult(stt, "Lỗi/Mail rỗng", mailLabel);
+                        }
+                    }
 
-								// Quét iframe tìm link
-								for (int attempt = 0; attempt < 20; attempt++)
-								{
-									try
-									{
-										var iframes = driver.FindElements(By.TagName("iframe"));
-										foreach (var iframe in iframes.Reverse()) // Ưu tiên iframe cuối (nội dung chính)
-										{
-											string raw = iframe.GetAttribute("srcdoc");
-											if (!string.IsNullOrEmpty(raw))
-											{
-												string decoded = System.Net.WebUtility.HtmlDecode(raw);
-												Match m = Regex.Match(decoded, @"href\s*=\s*[""'](https?://[^""']+)[""']");
-												string tempLink = m.Success ? m.Groups[1].Value : "";
-
-												if (string.IsNullOrEmpty(tempLink))
-												{
-													Match m2 = Regex.Match(decoded, @"https?://[^\s""'<]+");
-													if (m2.Success) tempLink = m2.Value;
-												}
-
-												if (!string.IsNullOrEmpty(tempLink))
-												{
-													// Kiểm tra trùng: Nếu link này chưa từng có trong lịch sử của email này -> Lấy
-													if (!collectedLinks.Contains(tempLink))
-													{
-														finalLink = tempLink;
-														// Xóa iframe để nhẹ máy
-														((IJavaScriptExecutor)driver).ExecuteScript("arguments[0].remove();", iframe);
-														break;
-													}
-												}
-											}
-										}
-									}
-									catch { }
-
-									if (!string.IsNullOrEmpty(finalLink)) break;
-									Thread.Sleep(250);
-								}
-
-								if (!string.IsNullOrEmpty(finalLink))
-								{
-									collectedLinks.Add(finalLink);
-									UpdateResult(stt, finalLink, mailLabel);
-								}
-								else
-								{
-									UpdateResult(stt, "Không tìm thấy link", mailLabel);
-								}
-
-								isSuccess = true;
-								break;
-							}
-							catch
-							{
-								driver.Navigate().GoToUrl("https://hcmail.xyz/mailbox");
-								Thread.Sleep(1000);
-							}
-						}
-
-						if (!isSuccess) UpdateResult(stt, "Lỗi đọc", mailLabel);
-					}
-					UpdateStatus(stt, "Hoàn tất!");
-				}
-				catch (Exception ex)
-				{
-					UpdateStatus(stt, "Lỗi: " + ex.Message);
-				}
-			}
-		}
-		// --- CẬP NHẬT GIAO DIỆN THEO STT (ĐỊNH DANH DÒNG CHÍNH XÁC) ---
-		void UpdateStatus(int stt, string status)
+                    UpdateStatus(stt, "Hoàn tất!");
+                }
+                catch (Exception ex)
+                {
+                    UpdateStatus(stt, "Lỗi: " + ex.Message);
+                }
+            }
+        }
+        // --- CẬP NHẬT GIAO DIỆN THEO STT (ĐỊNH DANH DÒNG CHÍNH XÁC) ---
+        void UpdateStatus(int stt, string status)
 		{
 			try
 			{
@@ -441,10 +402,9 @@ namespace AutoMailWinForm
 				{
 					List<string> lines = new List<string>();
 
-					// 1. TẠO HEADER VỚI 5 CỘT LINK RIÊNG BIỆT
-					lines.Add("STT,Email,Link 1,Link 2,Link 3,Link 4,Link 5,Trạng thái");
-
-					foreach (DataRow row in dtResults.Rows)
+                    // 1. TẠO HEADER VỚI 5 CỘT LINK RIÊNG BIỆT
+                    lines.Add("STT,Email,Link 1,Link 2,Link 3,Link 4,Link 5,Link 6,Link 7,Link 8,Link 9,Link 10,Trạng thái");
+                    foreach (DataRow row in dtResults.Rows)
 					{
 						// Lấy chuỗi gốc trong ô (đang chứa cả 5 link và xuống dòng)
 						string rawLinks = row["Link Lấy Được"].ToString();
@@ -452,11 +412,10 @@ namespace AutoMailWinForm
 						// Tách từng dòng ra
 						string[] linkArray = rawLinks.Split(new[] { Environment.NewLine }, StringSplitOptions.RemoveEmptyEntries);
 
-						// Khai báo 5 biến chứa link, mặc định là rỗng
-						string l1 = "", l2 = "", l3 = "", l4 = "", l5 = "";
-
-						// Duyệt qua từng dòng để nhét vào đúng biến
-						foreach (string item in linkArray)
+                        // Khai báo 5 biến chứa link, mặc định là rỗng
+                        string l1 = "", l2 = "", l3 = "", l4 = "", l5 = "", l6 = "", l7 = "", l8 = "", l9 = "", l10 = "";
+                        // Duyệt qua từng dòng để nhét vào đúng biến
+                        foreach (string item in linkArray)
 						{
 							// Item có dạng: "[Mail 1]: https://..." -> Cần cắt bỏ cái "[Mail 1]: " đi cho sạch
 							string urlOnly = "";
@@ -470,12 +429,16 @@ namespace AutoMailWinForm
 							if (item.Contains("[Mail 3]")) l3 = urlOnly;
 							if (item.Contains("[Mail 4]")) l4 = urlOnly;
 							if (item.Contains("[Mail 5]")) l5 = urlOnly;
-						}
+                            if (item.Contains("[Mail 6]")) l6 = urlOnly;
+                            if (item.Contains("[Mail 7]")) l7 = urlOnly;
+                            if (item.Contains("[Mail 8]")) l8 = urlOnly;
+                            if (item.Contains("[Mail 9]")) l9 = urlOnly;
+                            if (item.Contains("[Mail 10]")) l10 = urlOnly;
+                        }
 
-						// 2. GHI DÒNG DỮ LIỆU VỚI 5 CỘT
-						// Cấu trúc: STT, Email, L1, L2, L3, L4, L5, Trạng Thái
-						string line = $"{row["STT"]},{row["Email"]},{l1},{l2},{l3},{l4},{l5},{row["Trạng Thái"]}";
-						lines.Add(line);
+                        // 2. GHI DÒNG DỮ LIỆU VỚI 5 CỘT
+                        // Cấu trúc: STT, Email, L1, L2, L3, L4, L5, Trạng Thái
+                        string line = $"{row["STT"]},{row["Email"]},{l1},{l2},{l3},{l4},{l5},{l6},{l7},{l8},{l9},{l10},{row["Trạng Thái"]}"; lines.Add(line);
 					}
 
 					// Ghi file UTF-8
