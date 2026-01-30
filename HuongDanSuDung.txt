@@ -1,0 +1,79 @@
+============================================================
+      HƯỚNG DẪN SỬ DỤNG & CHÍNH SÁCH BẢO HÀNH TOOL
+============================================================
+
+I. YÊU CẦU HỆ THỐNG
+1. Hệ điều hành: Windows 10 hoặc Windows 11 (64-bit).
+2. Trình duyệt: Bắt buộc phải có Google Chrome (khuyên dùng bản mới nhất).
+3. Môi trường: Phần mềm đã tích hợp sẵn bộ chạy (Self-contained), quý khách KHÔNG CẦN thư viện nào khác.
+
+------------------------------------------------------------
+
+II. CÁCH CÀI ĐẶT & CHẠY TOOL (QUAN TRỌNG)
+Rất nhiều bạn gặp lỗi vì bỏ qua bước này:
+1. Tải file nén về máy tính.
+2. Chuột phải vào file -> Chọn "Extract All" (hoặc "Extract Here") để giải nén ra một thư mục riêng.
+3. Mở thư mục vừa giải nén -> Chạy file "AutoMailWinForm.exe".
+
+⚠️ LƯU Ý ĐẶC BIỆT: 
+- Tuyệt đối KHÔNG chạy trực tiếp file exe khi chưa giải nén.
+- Nếu mở lên thấy bảng xanh "Windows protected your PC", vui lòng bấm "More Info" -> "Run Anyway" để tiếp tục.
+
+------------------------------------------------------------
+
+III. HƯỚNG DẪN SỬ DỤNG NHANH
+Bước 1: Nhập danh sách Email
+- Copy danh sách email cần chạy và dán vào ô nhập liệu bên trái.
+- Định dạng: Mỗi email nằm trên 1 dòng.
+
+Bước 2: Cấu hình Số luồng (Threads)
+- Máy yếu/Mạng gia đình: Nên để 3 - 5 luồng.
+- Máy khỏe/VPS/Proxy riêng: Có thể để 10 - 20 luồng (tùy RAM).
+
+Bước 3: Bấm "Bắt đầu chạy"
+- Lần đầu tiên chạy, tool sẽ mất khoảng 5-10 giây để tải Driver điều khiển Chrome.
+- Tool sẽ tự động mở Chrome ẩn (không hiện cửa sổ) để xử lý.
+- Trạng thái xử lý sẽ hiển thị thời gian thực ở bảng bên phải.
+
+Bước 4: Xuất kết quả
+- Sau khi chạy xong, bấm nút "Xuất File Excel" để lưu lại danh sách Link lấy được.
+- Những email nào lỗi thì sẽ báo ra để có thể tự tìm thủ công.
+- Những Link lỗi cũng báo ra để tự tìm thủ công.
+- Có thể nhập lại những email lỗi để chạy lại lần sau (dán email lại và chạy như bình thường).
+
+------------------------------------------------------------
+
+IV. LỜI KHUYÊN & CÁCH KHẮC PHỤC SỰ CỐ
+Để tool chạy mượt mà và bền bỉ, anh lưu ý các mẹo sau:
+
+1. Vấn đề về Mạng & IP (Rất quan trọng):
+   - Nếu chạy số lượng lớn (trên 10 luồng) tại mạng gia đình, trang web có thể chặn IP tạm thời (hiện tượng tool báo Timeout liên tục).
+   - Khắc phục: Nên Reset modem mạng để đổi IP, hoặc sử dụng Proxy xoay để chạy số lượng lớn.
+
+2. Vấn đề Antivirus / Windows Defender:
+   - Do tool được mã hóa để bảo vệ bản quyền, một số phần mềm diệt virus có thể nhận diện nhầm là file lạ và xóa mất.
+   - Khắc phục: Tắt tạm thời Antivirus hoặc thêm thư mục tool vào danh sách loại trừ (Exclusion) của Windows Defender.
+
+3. Dọn dẹp ổ cứng:
+   - Tool chạy Chrome ẩn nên sẽ sinh ra file tạm (Temp). Thi thoảng anh/chị nên dùng Disk Cleanup để dọn dẹp ổ C giúp máy chạy nhanh hơn.
+
+------------------------------------------------------------
+
+V. CHÍNH SÁCH BẢO HÀNH & MIỄN TRỪ TRÁCH NHIỆM
+Chúng tôi cam kết hỗ trợ kỹ thuật tốt nhất cho khách hàng. Tuy nhiên, đây là phần mềm Automation phụ thuộc vào bên thứ 3 (Google, Tmail Store), quý khách vui lòng lưu ý:
+
+1. Cơ chế Auto-Update Driver:
+   - Tool được tích hợp công nghệ tự động cập nhật theo phiên bản Chrome của quý khách. 90% các bản cập nhật Chrome thông thường tool sẽ tự xử lý được.
+
+2. Rủi ro khách quan (Bất khả kháng):
+   - Nếu Google Chrome thay đổi hoàn toàn cơ chế bảo mật (Core Update) hoặc Website đích (Tmailstore) thay đổi cấu trúc/giao diện: Tool có thể tạm ngừng hoạt động.
+   - Trường hợp này, chúng tôi sẽ cố gắng update sớm nhất có thể (có thể tính phí bảo trì nhỏ tùy vào độ phức tạp của thay đổi).
+3. Hạn bảo hành:
+   - Bản này có thời hạn sử dụng đến ngày: 01/05/2026.
+   - Trong thời gian này, em hỗ trợ update miễn phí.
+   - Sau thời gian này, nếu Google/Web tmailstore.com đổi cơ chế làm tool không chạy được, chi phí update sẽ thỏa thuận.
+------------------------------------------------------------
+
+VI. THÔNG TIN HỖ TRỢ (SUPPORT)
+Mọi thắc mắc kỹ thuật vui lòng liên hệ:
+- Zalo: 0993299686
